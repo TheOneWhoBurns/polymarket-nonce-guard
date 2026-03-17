@@ -1,3 +1,5 @@
+![Python](https://img.shields.io/badge/Python-3.10+-blue?logo=python&logoColor=white) ![Polygon](https://img.shields.io/badge/Polygon-PoS-8247E5?logo=polygon&logoColor=white) ![License](https://img.shields.io/badge/License-MIT-green)
+
 # Polymarket Nonce Guard 🛡️
 
 Detect and defend against the **nonce race exploit** on Polymarket's CTF Exchange.
