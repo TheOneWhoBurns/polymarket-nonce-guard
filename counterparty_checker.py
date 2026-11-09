@@ -82,7 +82,7 @@ def get_fills_in_block(block_number: int) -> list[dict]:
     for log in logs:
         parsed = parse_order_filled_log(log)
         if parsed:
-            parsed["tx_hash"] = log["transactionHash"].hex()
+            parsed["tx_hash"] = "0x" + bytes(log["transactionHash"]).hex()
             parsed["block"] = block_number
             parsed["log_index"] = log.get("logIndex", 0)
             results.append(parsed)

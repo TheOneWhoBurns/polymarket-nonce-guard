@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-signal.py — Universal alert signal for Polymarket Nonce Guard.
+alerts.py — Universal alert signal for Polymarket Nonce Guard.
 
 Provides a standardized alert format that any trading bot can consume.
 Alerts are written to a well-known file and optionally broadcast via:
@@ -29,7 +29,7 @@ Option 2: Listen on Unix socket
         handle(alert)
 
 Option 3: Subscribe in-process
-    from signal import AlertBus
+    from alerts import AlertBus
     bus = AlertBus()
     bus.subscribe(lambda alert: print(alert))
 
@@ -69,7 +69,6 @@ import logging
 import os
 import socket
 import threading
-import time
 from datetime import datetime, timezone
 from typing import Callable, Optional
 

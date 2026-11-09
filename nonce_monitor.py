@@ -10,14 +10,19 @@ Runs standalone alongside manipulation_detector.py.
 
 import asyncio
 import json
-import os
 import sys
 import time
 from collections import defaultdict
+from collections.abc import Mapping
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
 from web3 import Web3
+
+try:  # web3 7 and newer
+    from web3.middleware import ExtraDataToPOAMiddleware as poa_middleware
+except ImportError:  # web3 6
+    from web3.middleware import geth_poa_middleware as poa_middleware
 
 # ─── Config ───────────────────────────────────────────────────────────────────
 CTF_EXCHANGE = "0x4bFb41d5B3570DeFd03C39a9A4D8dE6Bd8B8982E"
@@ -100,14 +105,14 @@ class NonceStats:
         near_expiry = sum(1 for r in self.window_timing if r < 30)
         mid_window = sum(1 for r in self.window_timing if 30 <= r < 150)
         early_window = sum(1 for r in self.window_timing if r >= 150)
-        print(f"\n⏱  Timing distribution:")
+        print("\n⏱  Timing distribution:")
         print(f"  Last 30s of window:  {near_expiry} ({near_expiry/total*100:.0f}%)")
         print(f"  Mid window (30-150s): {mid_window} ({mid_window/total*100:.0f}%)")
         print(f"  Early window (150s+): {early_window} ({early_window/total*100:.0f}%)")
         
         # Hourly
         if self.hourly_counts:
-            print(f"\n📅 Hourly counts:")
+            print("\n📅 Hourly counts:")
             for hour, count in sorted(self.hourly_counts.items())[-12:]:
                 print(f"  {hour}: {count}")
         
@@ -134,9 +139,9 @@ def log_event(event: dict, stats: NonceStats):
 
     # Emit universal alert signal
     try:
-        from signal import emit as signal_emit, NONCE_INCREMENT, SUSPICIOUS_TIMING, NEW_EXPLOITER, INFO, WARNING
+        from alerts import emit as signal_emit, NONCE_INCREMENT, SUSPICIOUS_TIMING, NEW_EXPLOITER, INFO, WARNING
         is_late = w["remaining_secs"] < 30
-        is_new = len(stats.by_address.get(event["caller"].lower(), [])) <= 1
+        is_new = len(stats.by_address.get(event["caller"], [])) <= 1
         
         code = SUSPICIOUS_TIMING if is_late else (NEW_EXPLOITER if is_new else NONCE_INCREMENT)
         severity = WARNING if is_late else INFO
@@ -158,13 +163,48 @@ def log_event(event: dict, stats: NonceStats):
             },
         )
     except Exception:
-        pass  # signal module optional
+        pass  # alerts module optional
 
 
 # ─── Block polling monitor ──────────────────────────────────────────────────
+def to_hex(value) -> str:
+    """Return bytes (web3 hands back HexBytes) as a 0x-prefixed hex string."""
+    if isinstance(value, (bytes, bytearray)):
+        return "0x" + bytes(value).hex()
+    return value or "0x"
+
+
+def find_nonce_events(block, bn: int) -> list[dict]:
+    """Build an event for every incrementNonce() call to the CTF Exchange in a block."""
+    target = CTF_EXCHANGE.lower()
+    block_time = block.get("timestamp", int(time.time()))
+    events = []
+
+    for tx in block.get("transactions", []):
+        # web3 returns each transaction as an AttributeDict, which is a Mapping
+        # but not a dict, and its input and hash as HexBytes.
+        if not isinstance(tx, Mapping):
+            continue
+        to_addr = (tx.get("to") or "").lower()
+        inp = to_hex(tx.get("input"))
+
+        if to_addr == target and inp.startswith(INCREMENT_NONCE_SIG):
+            ts = datetime.fromtimestamp(block_time, tz=timezone.utc)
+            events.append({
+                "timestamp": ts.isoformat(),
+                "caller": tx["from"],
+                "tx_hash": to_hex(tx["hash"]),
+                "block": bn,
+                "gas_price_gwei": round(tx.get("gasPrice", 0) / 1e9, 2),
+                "window": get_btc_window(block_time),
+                "source": "confirmed",
+            })
+
+    return events
+
+
 async def poll_blocks(w3: Web3, stats: NonceStats):
     """Poll recent blocks for incrementNonce transactions."""
-    target = CTF_EXCHANGE.lower()
     last_block = w3.eth.block_number
     print(f"📡 Starting block poller from block {last_block}")
     
@@ -178,29 +218,12 @@ async def poll_blocks(w3: Web3, stats: NonceStats):
             for bn in range(last_block + 1, current + 1):
                 try:
                     block = w3.eth.get_block(bn, full_transactions=True)
-                except Exception:
+                except Exception as e:
+                    print(f"⚠️  Skipping block {bn}: {e}")
                     continue
                 
-                block_time = block.get("timestamp", int(time.time()))
-                
-                for tx in block.get("transactions", []):
-                    if not isinstance(tx, dict):
-                        continue
-                    to_addr = (tx.get("to") or "").lower()
-                    inp = (tx.get("input") or "0x")
-                    
-                    if to_addr == target and inp.startswith(INCREMENT_NONCE_SIG):
-                        ts = datetime.fromtimestamp(block_time, tz=timezone.utc)
-                        event = {
-                            "timestamp": ts.isoformat(),
-                            "caller": tx["from"],
-                            "tx_hash": tx["hash"].hex() if isinstance(tx["hash"], bytes) else tx["hash"],
-                            "block": bn,
-                            "gas_price_gwei": round(tx.get("gasPrice", 0) / 1e9, 2),
-                            "window": get_btc_window(block_time),
-                            "source": "confirmed",
-                        }
-                        log_event(event, stats)
+                for event in find_nonce_events(block, bn):
+                    log_event(event, stats)
             
             last_block = current
         
@@ -232,10 +255,14 @@ async def main():
     for rpc in HTTP_RPCS:
         try:
             w3 = Web3(Web3.HTTPProvider(rpc, request_kwargs={"timeout": 10}))
+            # Polygon is a proof-of-authority chain: without this middleware web3
+            # rejects every block ("extraData is 105 bytes, but should be 32").
+            w3.middleware_onion.inject(poa_middleware, layer=0)
             if w3.is_connected():
                 print(f"✅ Connected to {rpc}")
                 print(f"   Chain ID: {w3.eth.chain_id}, Block: {w3.eth.block_number}")
                 break
+            w3 = None
         except Exception as e:
             print(f"❌ Failed {rpc}: {e}")
             w3 = None

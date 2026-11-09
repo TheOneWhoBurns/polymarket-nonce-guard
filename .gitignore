@@ -4,3 +4,7 @@ __pycache__/
 *.pyc
 .env
 .venv/
+data/*.log*
+data/watchdog_state.json
+.pytest_cache/
+.ruff_cache/

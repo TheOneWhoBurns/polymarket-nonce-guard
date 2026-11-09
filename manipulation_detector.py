@@ -2,6 +2,9 @@
 """
 Real-time Polymarket BTC 5-min market manipulation detector.
 
+Kept as reference: config, market, and price_feed come from a private trading
+bot and are not part of this repository. This file is not runnable standalone.
+
 Detects order-book manipulation (mass cancellations, liquidity pulls, price spoofing)
 by comparing orderbook state changes against actual BTC price movements.
 
@@ -18,14 +21,26 @@ import logging
 import logging.handlers
 import os
 import signal
+import sys
 import time
 from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
-from config import BINANCE_WS
-from market import PolymarketClient, Window, current_window_timestamp, next_window_timestamp
-from price_feed import BinanceFeed
+try:
+    from config import BINANCE_WS as BINANCE_WS
+    from market import PolymarketClient, Window, current_window_timestamp, next_window_timestamp
+    from price_feed import BinanceFeed
+except ImportError as exc:
+    msg = (
+        f"Cannot import {exc.name or 'a required symbol'}: {exc}. "
+        "The config, market, and price_feed modules come from a private trading bot "
+        "and are not part of this repository. This file is kept as reference "
+        "and is not runnable standalone."
+    )
+    if __name__ == "__main__":
+        sys.exit(msg)
+    raise ImportError(msg) from exc
 
 # ---------------------------------------------------------------------------
 # Config

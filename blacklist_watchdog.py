@@ -6,22 +6,25 @@ Watches on-chain OrderFilled events for our proxy wallet. If a fill's counterpar
 is on the blacklist (nonce exploiters), immediately places a market sell to exit
 and writes an alert to data/blacklist_alerts.jsonl.
 
+Selling, including --dry-run order-book reads, requires market.PolymarketClient
+from a private trading bot. Only --no-sell works standalone.
 Runs independently — does NOT modify live_trader.py.
 
 Usage:
-    .venv/bin/python blacklist_watchdog.py [--dry-run] [--no-sell]
+    python blacklist_watchdog.py --proxy-address 0x1111111111111111111111111111111111111111 --no-sell
 """
 import argparse
 import json
 import logging
 import logging.handlers
 import os
+import re
 import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-# Add parent for config imports
+# This tool was written to live in a subdirectory of the private trading bot.
 parent_dir = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(parent_dir))
 
@@ -36,9 +39,6 @@ DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
 os.makedirs(DATA_DIR, exist_ok=True)
 ALERTS_FILE = os.path.join(DATA_DIR, "blacklist_alerts.jsonl")
 STATE_FILE = os.path.join(DATA_DIR, "watchdog_state.json")
-
-# Our proxy wallet
-PROXY_ADDRESS = "0x45bfb3aB984aFDA6c801b4a3cd5126c16926E42E"
 
 # Polling config
 POLL_INTERVAL = 2  # seconds between block checks
@@ -178,10 +178,28 @@ def save_state(state: dict):
         json.dump(state, f)
 
 
-def run(dry_run: bool = False, no_sell: bool = False):
+def resolve_proxy_address(cli_address: str | None, env_address: str | None) -> str:
+    address = cli_address if cli_address is not None else env_address
+    if not address:
+        raise ValueError("Supply --proxy-address or POLYMARKET_PROXY_ADDRESS")
+    if not re.fullmatch(r"0x[0-9a-fA-F]{40}", address):
+        raise ValueError("Proxy address must be 0x followed by 40 hexadecimal characters")
+    return address
+
+
+def run(proxy_address: str, dry_run: bool = False, no_sell: bool = False):
+    if not no_sell:
+        try:
+            _get_clob_client()
+        except ImportError as exc:
+            sys.exit(
+                f"Cannot import {exc.name or 'market.PolymarketClient'}: {exc}. "
+                "Selling and --dry-run require market.PolymarketClient from a private "
+                "trading bot, which is not part of this repository. Run with --no-sell."
+            )
     bl = get_blacklist()
     logger.info(
-        f"Blacklist watchdog started | proxy={PROXY_ADDRESS} | "
+        f"Blacklist watchdog started | proxy={proxy_address} | "
         f"blacklist={bl.count} addresses | dry_run={dry_run} | no_sell={no_sell}"
     )
 
@@ -213,11 +231,11 @@ def run(dry_run: bool = False, no_sell: bool = False):
             to_block = min(current_block, from_block + MAX_BLOCKS_PER_POLL - 1)
 
             for block_num in range(from_block, to_block + 1):
-                fills = get_fills_for_address(block_num, PROXY_ADDRESS)
+                fills = get_fills_for_address(block_num, proxy_address)
 
                 for fill in fills:
                     fills_checked += 1
-                    counterparty = get_counterparty(fill, PROXY_ADDRESS)
+                    counterparty = get_counterparty(fill, proxy_address)
                     if not counterparty:
                         continue
 
@@ -238,7 +256,7 @@ def run(dry_run: bool = False, no_sell: bool = False):
                         )
 
                         # Determine which token we received (to sell it)
-                        our = PROXY_ADDRESS.lower()
+                        our = proxy_address.lower()
                         if fill["taker"].lower() == our:
                             # We're the taker — we received maker's asset
                             token_to_sell = fill.get("maker_asset_id", "")
@@ -281,8 +299,13 @@ def main():
     parser = argparse.ArgumentParser(description="Blacklist watchdog for BTC 5-min bot")
     parser.add_argument("--dry-run", action="store_true", help="Log sells but don't execute")
     parser.add_argument("--no-sell", action="store_true", help="Only alert, don't sell")
+    parser.add_argument("--proxy-address", help="Proxy wallet address (or POLYMARKET_PROXY_ADDRESS)")
     args = parser.parse_args()
-    run(dry_run=args.dry_run, no_sell=args.no_sell)
+    try:
+        proxy_address = resolve_proxy_address(args.proxy_address, os.environ.get("POLYMARKET_PROXY_ADDRESS"))
+    except ValueError as exc:
+        parser.error(str(exc))
+    run(proxy_address, dry_run=args.dry_run, no_sell=args.no_sell)
 
 
 if __name__ == "__main__":
