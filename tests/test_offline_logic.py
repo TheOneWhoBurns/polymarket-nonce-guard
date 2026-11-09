@@ -131,3 +131,28 @@ def test_network_guard():
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         with pytest.raises(AssertionError, match="Network access forbidden"):
             sock.connect(("127.0.0.1", 9))
+
+
+def test_fills_in_block_reports_0x_prefixed_tx_hash(monkeypatch):
+    data = b"".join(n.to_bytes(32, "big") for n in [1, 2, 3, 4, 5])
+    log = {
+        "topics": [HexBytes(bytes(32)), HexBytes(bytes(32)),
+                   HexBytes(bytes.fromhex("00" * 12 + "11" * 20)),
+                   HexBytes(bytes.fromhex("00" * 12 + "22" * 20))],
+        "data": HexBytes(data), "transactionHash": HexBytes("0x" + "cd" * 32), "logIndex": 3,
+    }
+
+    class FakeEth:
+        def get_logs(self, filter_params):
+            assert filter_params["fromBlock"] == filter_params["toBlock"] == 99
+            return [log]
+
+    class FakeWeb3:
+        eth = FakeEth()
+
+    monkeypatch.setattr(checker, "_get_w3", lambda: FakeWeb3())
+
+    [fill] = checker.get_fills_for_address(99, "0x" + "22" * 20)
+    assert fill["tx_hash"] == "0x" + "cd" * 32
+    assert (fill["block"], fill["log_index"]) == (99, 3)
+    assert checker.get_fills_for_address(99, "0x" + "33" * 20) == []
