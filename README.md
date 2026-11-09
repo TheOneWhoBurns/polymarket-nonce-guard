@@ -1,4 +1,4 @@
-![Python](https://img.shields.io/badge/Python-3.10+-blue?logo=python&logoColor=white) ![Polygon](https://img.shields.io/badge/Polygon-PoS-8247E5?logo=polygon&logoColor=white) ![License](https://img.shields.io/badge/License-MIT-green)
+![Python](https://img.shields.io/badge/Python-3.10+-blue?logo=python&logoColor=white) ![Polygon](https://img.shields.io/badge/Polygon-PoS-8247E5?logo=polygon&logoColor=white) [![License](https://img.shields.io/badge/License-MIT-green)](./LICENSE) [![CI](https://github.com/TheOneWhoBurns/polymarket-nonce-guard/actions/workflows/ci.yml/badge.svg)](https://github.com/TheOneWhoBurns/polymarket-nonce-guard/actions/workflows/ci.yml)
 
 # Polymarket Nonce Guard 🛡️
 
@@ -84,7 +84,16 @@ An address is required and must be `0x` followed by 40 hexadecimal characters. W
 pip install -r requirements.txt
 ```
 
-Requires Python 3.10+. The on-chain tools require a Polygon RPC endpoint. Default: `https://polygon-bor-rpc.publicnode.com`
+Requires Python 3.10+ and web3.py 6 or newer. The on-chain tools require a Polygon RPC endpoint. Default: `https://polygon-bor-rpc.publicnode.com`
+
+### What runs standalone
+
+| Tool | Standalone? |
+| --- | --- |
+| `nonce_monitor.py`, `blacklist.py`, `counterparty_checker.py`, `alerts.py` | Yes |
+| `blacklist_watchdog.py --no-sell` | Yes (alerts only) |
+| `blacklist_watchdog.py` with selling or `--dry-run` | No, needs a private `market` module |
+| `manipulation_detector.py` | No, needs private `config`, `market` and `price_feed` modules |
 
 ## Configuration
 
@@ -121,6 +130,8 @@ pytest
 
 Tests are offline: RPC behavior is faked, file outputs use temporary directories, and a fixture blocks non-Unix socket connections. CI runs lint and tests on Python 3.10–3.13.
 
+Because nothing in CI talks to a chain, behaviour against live Polygon data is only checked by hand. The tests cover the parsing, filtering and classification logic using the object types web3 returns.
+
 ## How to Defend Your Bot
 
 1. **Run `nonce_monitor.py`** alongside your trading bot to build a blacklist
@@ -134,4 +145,4 @@ Tests are offline: RPC behavior is faked, file outputs use temporary directories
 
 ## License
 
-MIT
+[MIT](./LICENSE)
