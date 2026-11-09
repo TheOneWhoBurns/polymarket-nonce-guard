@@ -42,4 +42,19 @@ def test_detector_import(missing_private_modules):
 @pytest.mark.parametrize("dry_run", [False, True])
 def test_watchdog_startup(watchdog, missing_private_modules, dry_run):
     with pytest.raises(SystemExit, match="market.*--no-sell"):
-        watchdog.run(dry_run=dry_run)
+        watchdog.run("0x" + "1" * 40, dry_run=dry_run)
+
+
+def test_proxy_address_resolution(watchdog):
+    cli = "0x" + "1" * 40
+    env = "0x" + "aB" * 20
+    assert watchdog.resolve_proxy_address(cli, env) == cli
+    assert watchdog.resolve_proxy_address(None, env) == env
+    with pytest.raises(ValueError, match="Supply"):
+        watchdog.resolve_proxy_address(None, None)
+
+
+@pytest.mark.parametrize("value", ["", "0x123", "0x" + "g" * 40, "0X" + "1" * 40, "0x" + "1" * 41])
+def test_invalid_proxy_address(watchdog, value):
+    with pytest.raises(ValueError):
+        watchdog.resolve_proxy_address(value, "0x" + "1" * 40)
