@@ -6,6 +6,8 @@ Watches on-chain OrderFilled events for our proxy wallet. If a fill's counterpar
 is on the blacklist (nonce exploiters), immediately places a market sell to exit
 and writes an alert to data/blacklist_alerts.jsonl.
 
+Selling, including --dry-run order-book reads, requires market.PolymarketClient
+from a private trading bot. Only --no-sell works standalone.
 Runs independently — does NOT modify live_trader.py.
 
 Usage:
@@ -21,7 +23,7 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-# Add parent for config imports
+# This tool was written to live in a subdirectory of the private trading bot.
 parent_dir = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(parent_dir))
 
@@ -179,6 +181,15 @@ def save_state(state: dict):
 
 
 def run(dry_run: bool = False, no_sell: bool = False):
+    if not no_sell:
+        try:
+            _get_clob_client()
+        except ImportError as exc:
+            sys.exit(
+                f"Cannot import {exc.name or 'market.PolymarketClient'}: {exc}. "
+                "Selling and --dry-run require market.PolymarketClient from a private "
+                "trading bot, which is not part of this repository. Run with --no-sell."
+            )
     bl = get_blacklist()
     logger.info(
         f"Blacklist watchdog started | proxy={PROXY_ADDRESS} | "
