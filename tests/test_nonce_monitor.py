@@ -26,3 +26,20 @@ def test_event_classification(tmp_path, monkeypatch):
     ]
     assert [a["severity"] for a in emitted] == [alerts.INFO, alerts.INFO, alerts.WARNING]
     assert len([json.loads(line) for line in path.read_text().splitlines()]) == 3
+
+
+def test_no_rpc_connected(monkeypatch, capsys):
+    class FakeWeb3:
+        HTTPProvider = staticmethod(lambda *args, **kwargs: None)
+
+        def __init__(self, provider):
+            pass
+
+        def is_connected(self):
+            return False
+
+    monkeypatch.setattr(nonce_monitor, "Web3", FakeWeb3)
+    with pytest.raises(SystemExit) as exc:
+        asyncio.run(nonce_monitor.main())
+    assert exc.value.code == 1
+    assert "Could not connect to any Polygon RPC" in capsys.readouterr().out

@@ -236,6 +236,7 @@ async def main():
                 print(f"✅ Connected to {rpc}")
                 print(f"   Chain ID: {w3.eth.chain_id}, Block: {w3.eth.block_number}")
                 break
+            w3 = None
         except Exception as e:
             print(f"❌ Failed {rpc}: {e}")
             w3 = None
