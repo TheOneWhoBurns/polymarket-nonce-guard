@@ -27,7 +27,7 @@ python nonce_monitor.py
 Output: `data/nonce_events.jsonl` — append-only log of every detected call with caller address, tx hash, block, gas price, and market window timing.
 
 ### `blacklist.py` — Exploiter address database
-Loads known exploiter addresses from `nonce_events.jsonl` + a manual `data/blacklist_manual.txt`. Auto-refreshes every 60s.
+Loads known exploiter addresses from `nonce_events.jsonl` + a manual `data/blacklist_manual.txt`. Refreshes on lookup when at least 60s have elapsed. Every address that has ever called `incrementNonce()` is treated as an exploiter, although the call is also a legitimate cancel-all, so expect false positives.
 
 ```python
 from blacklist import Blacklist
@@ -36,37 +36,90 @@ bl.is_blacklisted("0x1234...")  # True/False
 ```
 
 ### `counterparty_checker.py` — On-chain fill analysis
-Given a transaction hash, parses CTF Exchange logs to extract maker/taker addresses from settled orders.
+Fetches CTF Exchange OrderFilled logs by block and parses maker/taker addresses from settled orders.
 
 ```python
-from counterparty_checker import get_counterparty
-counterparty = get_counterparty(tx_hash="0x...")
+from counterparty_checker import get_fills_for_address, get_counterparty
+
+our_address = "0x1111111111111111111111111111111111111111"
+block_number = 12345678  # replace with the block to inspect
+for fill in get_fills_for_address(block_number, our_address):
+    counterparty = get_counterparty(fill, our_address)
+    print(counterparty)
 ```
 
 ### `manipulation_detector.py` — Orderbook anomaly detector
-Monitors Polymarket orderbook for suspicious patterns (large orders appearing/disappearing, price manipulation around settlement windows).
+Reference code for monitoring orderbook changes against BTC price movements. It requires `config`, `market`, and `price_feed` from a private trading bot; these are not included, and this file is not runnable standalone.
+
+### `alerts.py` — Alert format and dispatcher
+Provides `make_alert`, `AlertBus`, and a lazy default bus via `emit`. The nonce monitor emits `NEW_EXPLOITER`, `NONCE_INCREMENT`, or `SUSPICIOUS_TIMING` alerts to `data/alerts.jsonl`. Optional outputs include stdout, in-process callbacks, a Unix socket, and an HTTP webhook. The watchdog writes its own separate alert file.
+
+```python
+from alerts import AlertBus
+
+bus = AlertBus(file=False, stdout=True)
+bus.subscribe(lambda alert: print(alert["code"]))
+bus.emit(code="NONCE_INCREMENT", severity="info", source="example", data={})
+```
+
+### `blacklist_watchdog.py` — Blacklisted counterparty watcher
+Polls on-chain fills for a configured proxy wallet and writes alerts when a counterparty is blacklisted. Run standalone in alert-only mode:
+
+```bash
+python blacklist_watchdog.py --proxy-address 0x1111111111111111111111111111111111111111 --no-sell
+```
+
+Replace the fake address with your proxy wallet. `--proxy-address` takes precedence over `POLYMARKET_PROXY_ADDRESS`:
+
+```bash
+export POLYMARKET_PROXY_ADDRESS=0x1111111111111111111111111111111111111111
+python blacklist_watchdog.py --no-sell
+```
+
+An address is required and must be `0x` followed by 40 hexadecimal characters. Without `--no-sell`, the watchdog attempts emergency sells and requires the private `market.PolymarketClient` module. `--dry-run` skips order placement but still initializes that client and reads the order book. Thus only `--no-sell` works standalone; it still needs Polygon RPC access.
 
 ## Setup
 
 ```bash
-pip install web3 requests py-clob-client
+pip install -r requirements.txt
 ```
 
-Requires a Polygon RPC endpoint. Default: `https://polygon-bor-rpc.publicnode.com`
+Requires Python 3.10+. The on-chain tools require a Polygon RPC endpoint. Default: `https://polygon-bor-rpc.publicnode.com`
 
 ## Configuration
 
-Set these environment variables or edit the constants at the top of each file:
+The only environment variable read directly by this repository is `POLYMARKET_PROXY_ADDRESS`, used by the watchdog when `--proxy-address` is absent. Other settings are constants near the top of each file:
 
-- `CTF_EXCHANGE` — CTF Exchange contract address (default: `0x4bFb41d5B3570DeFd03C39a9A4D8dE6Bd8B8982E`)
-- Polygon RPC URLs are hardcoded with fallbacks
+- `nonce_monitor.py`: `CTF_EXCHANGE`, `INCREMENT_NONCE_SIG`, `HTTP_RPCS`, `POLL_INTERVAL`, `DATA_DIR`, `EVENTS_FILE`.
+- `blacklist.py`: `NONCE_EVENTS_FILE`, `MANUAL_BLACKLIST_FILE`, `REFRESH_INTERVAL`.
+- `counterparty_checker.py`: `POLYGON_RPC`, `CTF_EXCHANGE`, `ORDER_FILLED_TOPIC`.
+- `alerts.py`: `ALERTS_FILE`, `SOCKET_PATH`, `ALERT_VERSION`; output options are also `AlertBus` constructor arguments.
+- `blacklist_watchdog.py`: `POLL_INTERVAL`, `MAX_BLOCKS_PER_POLL`, `SELL_AGGRESSION`, `DATA_DIR`, `ALERTS_FILE`, `STATE_FILE`.
+- `manipulation_detector.py` (private bot required): `POLL_INTERVAL`, `ALERT_COOLDOWN`, `HISTORY_SIZE`, `PRICE_JUMP_THRESHOLD`, `BTC_MOVE_THRESHOLD_PCT`, `DEPTH_DROP_PCT`, `DEPTH_DROP_WINDOW`, `DIVERGENCE_THRESHOLD`, `VOLUME_VANISH_THRESHOLD`, `COUNTER_TRADE_SIZE`, `COUNTER_TRADE_EDGE`, `DATA_DIR`, `ALERT_LOG`.
 
 ## Data
 
-All output goes to `data/`:
-- `nonce_events.jsonl` — incrementNonce event log
-- `manipulation_alerts.jsonl` — orderbook anomaly alerts
-- `blacklist_manual.txt` — manually added addresses (one per line)
+Default files written under `data/`:
+
+- `nonce_events.jsonl` — nonce monitor events.
+- `alerts.jsonl` — default alert bus output.
+- `blacklist_alerts.jsonl` — watchdog alerts and sell results.
+- `watchdog_state.json` — watchdog progress across restarts.
+- `blacklist_watchdog.log`, `.log.1`, `.log.2` — watchdog logs (the active log is opened on import).
+- `manipulation_alerts.jsonl` — private-bot detector alerts.
+- `manipulation_detector.log`, `.log.1`, `.log.2`, `.log.3` — private-bot detector logs.
+
+`data/blacklist_manual.txt` is an optional user-maintained input, one address per line; blank lines and lines beginning with `#` are ignored. Runtime files are ignored by Git. Optional alert bus outputs can write elsewhere.
+
+## Development
+
+```bash
+pip install -r requirements-dev.txt
+ruff check .
+pytest
+```
+
+Tests are offline: RPC behavior is faked, file outputs use temporary directories, and a fixture blocks non-Unix socket connections. CI runs lint and tests on Python 3.10–3.13.
 
 ## How to Defend Your Bot
 
