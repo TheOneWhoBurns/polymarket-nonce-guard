@@ -10,7 +10,6 @@ Runs standalone alongside manipulation_detector.py.
 
 import asyncio
 import json
-import os
 import sys
 import time
 from collections import defaultdict
@@ -100,14 +99,14 @@ class NonceStats:
         near_expiry = sum(1 for r in self.window_timing if r < 30)
         mid_window = sum(1 for r in self.window_timing if 30 <= r < 150)
         early_window = sum(1 for r in self.window_timing if r >= 150)
-        print(f"\n⏱  Timing distribution:")
+        print("\n⏱  Timing distribution:")
         print(f"  Last 30s of window:  {near_expiry} ({near_expiry/total*100:.0f}%)")
         print(f"  Mid window (30-150s): {mid_window} ({mid_window/total*100:.0f}%)")
         print(f"  Early window (150s+): {early_window} ({early_window/total*100:.0f}%)")
         
         # Hourly
         if self.hourly_counts:
-            print(f"\n📅 Hourly counts:")
+            print("\n📅 Hourly counts:")
             for hour, count in sorted(self.hourly_counts.items())[-12:]:
                 print(f"  {hour}: {count}")
         

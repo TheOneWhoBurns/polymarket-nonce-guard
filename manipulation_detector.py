@@ -28,7 +28,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
 try:
-    from config import BINANCE_WS
+    from config import BINANCE_WS as BINANCE_WS
     from market import PolymarketClient, Window, current_window_timestamp, next_window_timestamp
     from price_feed import BinanceFeed
 except ImportError as exc:

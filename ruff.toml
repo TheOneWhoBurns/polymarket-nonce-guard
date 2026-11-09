@@ -1,0 +1,7 @@
+target-version = "py310"
+
+[lint]
+select = ["E4", "E7", "E9", "F"]
+
+[lint.per-file-ignores]
+"blacklist_watchdog.py" = ["E402"]
