@@ -136,7 +136,7 @@ def log_event(event: dict, stats: NonceStats):
     try:
         from alerts import emit as signal_emit, NONCE_INCREMENT, SUSPICIOUS_TIMING, NEW_EXPLOITER, INFO, WARNING
         is_late = w["remaining_secs"] < 30
-        is_new = len(stats.by_address.get(event["caller"].lower(), [])) <= 1
+        is_new = len(stats.by_address.get(event["caller"], [])) <= 1
         
         code = SUSPICIOUS_TIMING if is_late else (NEW_EXPLOITER if is_new else NONCE_INCREMENT)
         severity = WARNING if is_late else INFO
