@@ -134,7 +134,7 @@ def log_event(event: dict, stats: NonceStats):
 
     # Emit universal alert signal
     try:
-        from signal import emit as signal_emit, NONCE_INCREMENT, SUSPICIOUS_TIMING, NEW_EXPLOITER, INFO, WARNING
+        from alerts import emit as signal_emit, NONCE_INCREMENT, SUSPICIOUS_TIMING, NEW_EXPLOITER, INFO, WARNING
         is_late = w["remaining_secs"] < 30
         is_new = len(stats.by_address.get(event["caller"].lower(), [])) <= 1
         
@@ -158,7 +158,7 @@ def log_event(event: dict, stats: NonceStats):
             },
         )
     except Exception:
-        pass  # signal module optional
+        pass  # alerts module optional
 
 
 # ─── Block polling monitor ──────────────────────────────────────────────────
